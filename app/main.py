@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.db.database import engine
+from app.db.database import engine, init_db
 from app.db.redis import check_redis_connection
 
 
@@ -10,6 +10,11 @@ app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0"
 )
+
+
+@app.on_event("startup")
+def startup_event():
+    init_db()
 
 
 @app.get("/")
@@ -28,7 +33,6 @@ def health_check():
         "redis": "unknown"
     }
 
-    # Check PostgreSQL
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
@@ -38,7 +42,6 @@ def health_check():
     except Exception:
         health_status["database"] = "unhealthy"
 
-    # Check Redis
     try:
         check_redis_connection()
 

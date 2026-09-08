@@ -25,3 +25,9 @@ def get_db():
 
     finally:
         db.close()
+
+
+def init_db():
+    from app import models
+
+    Base.metadata.create_all(bind=engine)
