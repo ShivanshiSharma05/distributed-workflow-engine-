@@ -5,11 +5,18 @@ from app.core.config import settings
 from app.db.database import engine, init_db
 from app.db.redis import check_redis_connection
 
+from app.api.workflow import router as workflow_router
+from app.api.task import router as task_router
+
 
 app = FastAPI(
     title=settings.APP_NAME,
     version="0.1.0"
 )
+
+
+app.include_router(workflow_router)
+app.include_router(task_router)
 
 
 @app.on_event("startup")
