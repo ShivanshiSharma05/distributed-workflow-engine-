@@ -9,3 +9,8 @@ from app.schemas.task import (
     TaskUpdate,
     TaskResponse,
 )
+
+from app.schemas.dependency import (
+    DependencyCreate,
+    DependencyResponse
+)

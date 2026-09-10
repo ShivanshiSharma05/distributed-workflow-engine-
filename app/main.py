@@ -7,6 +7,7 @@ from app.db.redis import check_redis_connection
 
 from app.api.workflow import router as workflow_router
 from app.api.task import router as task_router
+from app.api.dependency import router as dependency_router
 
 
 app = FastAPI(
@@ -17,6 +18,7 @@ app = FastAPI(
 
 app.include_router(workflow_router)
 app.include_router(task_router)
+app.include_router(dependency_router)
 
 
 @app.on_event("startup")
