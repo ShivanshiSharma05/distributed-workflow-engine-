@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, ForeignKey, DateTime, Enum
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Enum
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from datetime import datetime
 
 from app.db.database import Base
 from app.models.enums import WorkflowStatus
@@ -13,7 +13,7 @@ class WorkflowExecution(Base):
 
     workflow_id = Column(
         Integer,
-        ForeignKey("workflows.id", ondelete="CASCADE"),
+        ForeignKey("workflows.id"),
         nullable=False
     )
 
@@ -23,19 +23,12 @@ class WorkflowExecution(Base):
         nullable=False
     )
 
-    started_at = Column(
-        DateTime(timezone=True),
-        nullable=True
-    )
-
-    completed_at = Column(
-        DateTime(timezone=True),
-        nullable=True
-    )
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
 
     created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
+        DateTime,
+        default=datetime.utcnow
     )
 
     workflow = relationship(

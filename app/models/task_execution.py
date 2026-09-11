@@ -1,14 +1,6 @@
-from sqlalchemy import (
-    Column,
-    Integer,
-    ForeignKey,
-    DateTime,
-    Enum,
-    Text
-)
-
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Enum, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from datetime import datetime
 
 from app.db.database import Base
 from app.models.enums import TaskStatus
@@ -21,13 +13,13 @@ class TaskExecution(Base):
 
     workflow_execution_id = Column(
         Integer,
-        ForeignKey("workflow_executions.id", ondelete="CASCADE"),
+        ForeignKey("workflow_executions.id"),
         nullable=False
     )
 
     task_id = Column(
         Integer,
-        ForeignKey("tasks.id", ondelete="CASCADE"),
+        ForeignKey("tasks.id"),
         nullable=False
     )
 
@@ -37,23 +29,27 @@ class TaskExecution(Base):
         nullable=False
     )
 
-    retry_count = Column(Integer, default=0)
+    retry_count = Column(
+        Integer,
+        default=0
+    )
 
     worker_id = Column(
         Integer,
-        ForeignKey("workers.id", ondelete="SET NULL"),
+        ForeignKey("workers.id"),
         nullable=True
     )
 
-    started_at = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime, nullable=True)
 
-    completed_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(
+        DateTime,
+        nullable=True
+    )
 
-    error_message = Column(Text, nullable=True)
-
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
+    error_message = Column(
+        Text,
+        nullable=True
     )
 
     workflow_execution = relationship(
@@ -61,10 +57,7 @@ class TaskExecution(Base):
         back_populates="task_executions"
     )
 
-    task = relationship(
-        "Task",
-        back_populates="executions"
-    )
+    task = relationship("Task")
 
     worker = relationship(
         "Worker",
