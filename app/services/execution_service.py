@@ -111,3 +111,51 @@ def start_execution(
     db.refresh(execution)
 
     return execution
+
+
+def update_workflow_status(
+    db: Session,
+    workflow_execution_id: int
+):
+    execution = get_execution(
+        db,
+        workflow_execution_id
+    )
+
+    if execution is None:
+        return None
+
+    task_executions = (
+        db.query(TaskExecution)
+        .filter(
+            TaskExecution.workflow_execution_id
+            == workflow_execution_id
+        )
+        .all()
+    )
+
+    if not task_executions:
+        return execution
+
+    all_success = all(
+        task.status == TaskStatus.SUCCESS
+        for task in task_executions
+    )
+
+    any_failed = any(
+        task.status == TaskStatus.FAILED
+        for task in task_executions
+    )
+
+    if all_success:
+        execution.status = WorkflowStatus.SUCCESS
+        execution.completed_at = datetime.utcnow()
+
+    elif any_failed:
+        execution.status = WorkflowStatus.FAILED
+        execution.completed_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(execution)
+
+    return execution

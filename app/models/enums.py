@@ -10,12 +10,13 @@ class WorkflowStatus(str, Enum):
 
 class TaskStatus(str, Enum):
     PENDING = "PENDING"
+    READY = "READY"
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     RETRYING = "RETRYING"
-    DEAD_LETTER = "DEAD_LETTER"
+    DEAD_LETTER = "DEAD_LETTER"    
 
 
 class WorkerStatus(str, Enum):
