@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
 from app.services.queue_service import dequeue_task
+from app.services.retry_service import retry_task
 from app.models.task_execution import TaskExecution
 from app.models.enums import TaskStatus
 
@@ -21,7 +22,10 @@ def execute_task(task_data: dict):
         )
 
         if task_execution is None:
-            print(f"Task execution {task_execution_id} not found.")
+            print(
+                f"Task execution {task_execution_id} "
+                f"not found."
+            )
             return
 
         print(
@@ -32,8 +36,16 @@ def execute_task(task_data: dict):
         task_execution.status = TaskStatus.RUNNING
         db.commit()
 
-        # Simulate task execution
-        print(f"Executing task {task_execution.task_id}...")
+        print(
+            f"Executing task "
+            f"{task_execution.task_id}..."
+        )
+
+        if task_execution.task_id == 6:
+            raise Exception(
+                "Simulated task failure"
+            )
+
         time.sleep(3)
 
         task_execution.status = TaskStatus.SUCCESS
@@ -49,18 +61,27 @@ def execute_task(task_data: dict):
 
         task_execution = (
             db.query(TaskExecution)
-            .filter(TaskExecution.id == task_execution_id)
+            .filter(
+                TaskExecution.id == task_execution_id
+            )
             .first()
         )
 
         if task_execution:
             task_execution.status = TaskStatus.FAILED
             task_execution.error_message = str(e)
+
             db.commit()
 
-        print(
-            f"Task execution {task_execution_id} failed: {e}"
-        )
+            print(
+                f"Task execution {task_execution_id} "
+                f"failed: {e}"
+            )
+
+            retry_task(
+                db,
+                task_execution
+            )
 
     finally:
         db.close()
@@ -76,7 +97,9 @@ def start_worker():
         if task_data is None:
             continue
 
-        print(f"Received task: {task_data}")
+        print(
+            f"Received task: {task_data}"
+        )
 
         execute_task(task_data)
 
