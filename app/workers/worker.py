@@ -11,23 +11,24 @@ from app.services.retry_service import retry_task
 from app.services.worker_service import update_heartbeat
 
 from app.models.worker import Worker
+from app.models.task import Task
 from app.models.task_execution import TaskExecution
 from app.models.enums import TaskStatus, WorkerStatus
 
 
-# ---------------------------------------------------------
+# =========================================================
 # WORKER REGISTRATION
-# ---------------------------------------------------------
+# =========================================================
 
 def register_worker():
     """
     Register a new worker in PostgreSQL.
-    Each worker gets a unique name.
     """
 
     db = SessionLocal()
 
     try:
+
         worker_name = f"worker-{uuid.uuid4().hex[:8]}"
 
         worker = Worker(
@@ -52,13 +53,13 @@ def register_worker():
         db.close()
 
 
-# ---------------------------------------------------------
+# =========================================================
 # HEARTBEAT LOOP
-# ---------------------------------------------------------
+# =========================================================
 
 def heartbeat_loop(worker_id: int):
     """
-    Send a heartbeat every 5 seconds.
+    Send heartbeat every 5 seconds.
     """
 
     while True:
@@ -66,15 +67,21 @@ def heartbeat_loop(worker_id: int):
         db = SessionLocal()
 
         try:
-            worker = update_heartbeat(db, worker_id)
+
+            worker = update_heartbeat(
+                db,
+                worker_id
+            )
 
             if worker:
+
                 print(
                     f"Heartbeat sent by worker "
                     f"{worker.worker_name}"
                 )
 
         except Exception as e:
+
             print(
                 f"Heartbeat error for worker "
                 f"{worker_id}: {e}"
@@ -86,13 +93,16 @@ def heartbeat_loop(worker_id: int):
         time.sleep(5)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TASK EXECUTION
-# ---------------------------------------------------------
+# =========================================================
 
-def execute_task(task_data: dict):
+def execute_task(
+    task_data: dict,
+    worker_id: int
+):
     """
-    Execute a task received from Redis.
+    Execute one task received from Redis.
     """
 
     db: Session = SessionLocal()
@@ -102,7 +112,7 @@ def execute_task(task_data: dict):
     try:
 
         # -------------------------------------------------
-        # Find task execution
+        # Find TaskExecution
         # -------------------------------------------------
 
         task_execution = (
@@ -114,44 +124,90 @@ def execute_task(task_data: dict):
         )
 
         if task_execution is None:
+
             print(
                 f"Task execution "
                 f"{task_execution_id} not found."
             )
+
             return
 
         # -------------------------------------------------
-        # Mark task as RUNNING
+        # Find Task definition
         # -------------------------------------------------
+
+        task = (
+            db.query(Task)
+            .filter(
+                Task.id == task_execution.task_id
+            )
+            .first()
+        )
+
+        if task is None:
+
+            raise Exception(
+                f"Task "
+                f"{task_execution.task_id} "
+                f"not found."
+            )
+
+        # -------------------------------------------------
+        # Mark task RUNNING
+        # -------------------------------------------------
+
+        task_execution.status = TaskStatus.RUNNING
+
+        task_execution.started_at = (
+            datetime.now(timezone.utc)
+        )
+
+        task_execution.worker_id = worker_id
+
+        db.commit()
 
         print(
             f"Starting task execution: "
             f"{task_execution_id}"
         )
 
-        task_execution.status = TaskStatus.RUNNING
-        task_execution.started_at = datetime.now(timezone.utc)
-
-        db.commit()
-
         # -------------------------------------------------
-        # Execute task
+        # Simulated task execution
         # -------------------------------------------------
+
+        execution_time = 3
 
         print(
             f"Executing task "
-            f"{task_execution.task_id}..."
+            f"{task_execution.task_id} "
+            f"for {execution_time} seconds..."
         )
 
-        # Simulated task execution
-        time.sleep(3)
+        time.sleep(execution_time)
 
         # -------------------------------------------------
-        # Mark task as SUCCESS
+        # TIMEOUT CHECK
+        # -------------------------------------------------
+
+        if (
+            task.timeout_seconds is not None
+            and execution_time > task.timeout_seconds
+        ):
+
+            raise TimeoutError(
+                f"Task exceeded timeout of "
+                f"{task.timeout_seconds} seconds."
+            )
+
+        # -------------------------------------------------
+        # SUCCESS
         # -------------------------------------------------
 
         task_execution.status = TaskStatus.SUCCESS
-        task_execution.completed_at = datetime.now(timezone.utc)
+
+        task_execution.completed_at = (
+            datetime.now(timezone.utc)
+        )
 
         db.commit()
 
@@ -161,11 +217,14 @@ def execute_task(task_data: dict):
             f"completed successfully."
         )
 
+    # =====================================================
+    # FAILURE / TIMEOUT
+    # =====================================================
+
     except Exception as e:
 
         db.rollback()
 
-        # Fetch task execution again
         task_execution = (
             db.query(TaskExecution)
             .filter(
@@ -177,8 +236,12 @@ def execute_task(task_data: dict):
         if task_execution:
 
             task_execution.status = TaskStatus.FAILED
+
             task_execution.error_message = str(e)
-            task_execution.completed_at = datetime.now(timezone.utc)
+
+            task_execution.completed_at = (
+                datetime.now(timezone.utc)
+            )
 
             db.commit()
 
@@ -189,7 +252,7 @@ def execute_task(task_data: dict):
             )
 
             # -------------------------------------------------
-            # Retry failed task
+            # Retry existing failed task
             # -------------------------------------------------
 
             retry_task(
@@ -198,21 +261,17 @@ def execute_task(task_data: dict):
             )
 
     finally:
+
         db.close()
 
 
-# ---------------------------------------------------------
+# =========================================================
 # START WORKER
-# ---------------------------------------------------------
+# =========================================================
 
 def start_worker():
     """
     Start worker process.
-
-    1. Register worker
-    2. Start heartbeat thread
-    3. Listen to Redis queue
-    4. Execute received tasks
     """
 
     # -----------------------------------------------------
@@ -233,15 +292,11 @@ def start_worker():
 
     heartbeat_thread.start()
 
-    # -----------------------------------------------------
-    # Start worker
-    # -----------------------------------------------------
-
     print("Worker started.")
     print("Waiting for tasks from Redis...")
 
     # -----------------------------------------------------
-    # Continuously listen for tasks
+    # Listen for tasks
     # -----------------------------------------------------
 
     while True:
@@ -258,13 +313,17 @@ def start_worker():
                 f"{task_data}"
             )
 
-            execute_task(task_data)
+            execute_task(
+                task_data,
+                worker_id
+            )
 
         except KeyboardInterrupt:
 
             print(
                 f"\nWorker {worker_id} stopped."
             )
+
             break
 
         except Exception as e:
@@ -276,9 +335,9 @@ def start_worker():
             time.sleep(1)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # ENTRY POINT
-# ---------------------------------------------------------
+# =========================================================
 
 if __name__ == "__main__":
     start_worker()
