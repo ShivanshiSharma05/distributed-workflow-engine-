@@ -12,6 +12,7 @@ from app.api.execution import router as execution_router
 from app.api.scheduler import router as scheduler_router
 from app.api.task_execution import router as task_execution_router
 from app.api.worker import router as worker_router
+from app.api.dead_letter import router as dead_letter_router
 
 
 app = FastAPI(
@@ -27,6 +28,7 @@ app.include_router(execution_router)
 app.include_router(scheduler_router)
 app.include_router(task_execution_router)
 app.include_router(worker_router)
+app.include_router(dead_letter_router)
 
 
 @app.on_event("startup")

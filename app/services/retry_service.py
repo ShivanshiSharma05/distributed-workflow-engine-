@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 from app.models.enums import TaskStatus
 from app.models.task_execution import TaskExecution
 from app.models.task import Task
-from app.services.queue_service import enqueue_task
+
+from app.services.queue_service import (
+    enqueue_task,
+    enqueue_dead_letter_task
+)
 
 
 def calculate_backoff(retry_count: int) -> int:
@@ -18,23 +22,52 @@ def retry_task(
 ):
     task = (
         db.query(Task)
-        .filter(Task.id == task_execution.task_id)
+        .filter(
+            Task.id == task_execution.task_id
+        )
         .first()
     )
 
     if task is None:
         task_execution.status = TaskStatus.FAILED
-        task_execution.error_message = "Task definition not found."
+        task_execution.error_message = (
+            "Task definition not found."
+        )
+
         db.commit()
         return
 
     if task_execution.retry_count >= task.max_retries:
+
         task_execution.status = TaskStatus.DEAD_LETTER
+
         db.commit()
 
+        dead_letter_data = {
+            "task_execution_id": task_execution.id,
+            "task_id": task_execution.task_id,
+            "workflow_execution_id": (
+                task_execution.workflow_execution_id
+            ),
+            "retry_count": task_execution.retry_count,
+            "error_message": task_execution.error_message,
+            "reason": "Maximum retries exceeded"
+        }
+
+        enqueue_dead_letter_task(
+            dead_letter_data
+        )
+
         print(
-            f"Task execution {task_execution.id} "
+            f"Task execution "
+            f"{task_execution.id} "
             f"moved to DEAD_LETTER."
+        )
+
+        print(
+            f"Task execution "
+            f"{task_execution.id} "
+            f"added to Dead-Letter Queue."
         )
 
         return
@@ -44,10 +77,13 @@ def retry_task(
 
     db.commit()
 
-    delay = calculate_backoff(task_execution.retry_count)
+    delay = calculate_backoff(
+        task_execution.retry_count
+    )
 
     print(
-        f"Retrying task execution {task_execution.id} "
+        f"Retrying task execution "
+        f"{task_execution.id} "
         f"in {delay} seconds..."
     )
 
@@ -56,7 +92,9 @@ def retry_task(
     task_data = {
         "task_execution_id": task_execution.id,
         "task_id": task_execution.task_id,
-        "workflow_execution_id": task_execution.workflow_execution_id
+        "workflow_execution_id": (
+            task_execution.workflow_execution_id
+        )
     }
 
     enqueue_task(task_data)
@@ -66,6 +104,7 @@ def retry_task(
     db.commit()
 
     print(
-        f"Task execution {task_execution.id} "
+        f"Task execution "
+        f"{task_execution.id} "
         f"requeued."
     )

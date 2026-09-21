@@ -1,24 +1,35 @@
+
 import time
 import threading
 import uuid
+
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.db.database import SessionLocal
-from app.services.queue_service import dequeue_task
-from app.services.retry_service import retry_task
-from app.services.worker_service import update_heartbeat
+
+from app.services.queue_service import (
+    dequeue_task
+)
+
+from app.services.retry_service import (
+    retry_task
+)
+
+from app.services.worker_service import (
+    update_heartbeat
+)
 
 from app.models.worker import Worker
 from app.models.task import Task
 from app.models.task_execution import TaskExecution
-from app.models.enums import TaskStatus, WorkerStatus
 
+from app.models.enums import (
+    TaskStatus,
+    WorkerStatus
+)
 
-# =========================================================
-# WORKER REGISTRATION
-# =========================================================
 
 def register_worker():
     """
@@ -29,16 +40,23 @@ def register_worker():
 
     try:
 
-        worker_name = f"worker-{uuid.uuid4().hex[:8]}"
+        worker_name = (
+            f"worker-"
+            f"{uuid.uuid4().hex[:8]}"
+        )
 
         worker = Worker(
             worker_name=worker_name,
             status=WorkerStatus.ACTIVE,
-            last_heartbeat=datetime.now(timezone.utc)
+            last_heartbeat=(
+                datetime.now(timezone.utc)
+            )
         )
 
         db.add(worker)
+
         db.commit()
+
         db.refresh(worker)
 
         print(
@@ -50,16 +68,15 @@ def register_worker():
         return worker.id
 
     finally:
+
         db.close()
 
 
-# =========================================================
-# HEARTBEAT LOOP
-# =========================================================
-
-def heartbeat_loop(worker_id: int):
+def heartbeat_loop(
+    worker_id: int
+):
     """
-    Send heartbeat every 5 seconds.
+    Send a heartbeat every 5 seconds.
     """
 
     while True:
@@ -88,37 +105,38 @@ def heartbeat_loop(worker_id: int):
             )
 
         finally:
+
             db.close()
 
         time.sleep(5)
 
-
-# =========================================================
-# TASK EXECUTION
-# =========================================================
 
 def execute_task(
     task_data: dict,
     worker_id: int
 ):
     """
-    Execute one task received from Redis.
+    Execute one task message.
+
+    Includes basic idempotency protection
+    for already-completed task executions.
     """
 
     db: Session = SessionLocal()
 
-    task_execution_id = task_data["task_execution_id"]
+    task_execution_id = (
+        task_data["task_execution_id"]
+    )
+
+    task_execution = None
 
     try:
-
-        # -------------------------------------------------
-        # Find TaskExecution
-        # -------------------------------------------------
 
         task_execution = (
             db.query(TaskExecution)
             .filter(
-                TaskExecution.id == task_execution_id
+                TaskExecution.id
+                == task_execution_id
             )
             .first()
         )
@@ -127,13 +145,49 @@ def execute_task(
 
             print(
                 f"Task execution "
-                f"{task_execution_id} not found."
+                f"{task_execution_id} "
+                f"not found."
             )
 
             return
 
         # -------------------------------------------------
-        # Find Task definition
+        # IDEMPOTENCY CHECK
+        # -------------------------------------------------
+
+        if task_execution.status in (
+            TaskStatus.SUCCESS,
+            TaskStatus.DEAD_LETTER
+        ):
+
+            print(
+                f"Skipping task execution "
+                f"{task_execution_id}. "
+                f"Current status: "
+                f"{task_execution.status}"
+            )
+
+            return
+
+        # Only QUEUED tasks should be executed.
+        # This prevents accidental execution of
+        # PENDING, READY, RUNNING, or RETRYING tasks.
+        if task_execution.status != (
+            TaskStatus.QUEUED
+        ):
+
+            print(
+                f"Skipping task execution "
+                f"{task_execution_id}. "
+                f"Expected QUEUED status, "
+                f"but found: "
+                f"{task_execution.status}"
+            )
+
+            return
+
+        # -------------------------------------------------
+        # LOAD TASK DEFINITION
         # -------------------------------------------------
 
         task = (
@@ -153,10 +207,12 @@ def execute_task(
             )
 
         # -------------------------------------------------
-        # Mark task RUNNING
+        # MARK TASK AS RUNNING
         # -------------------------------------------------
 
-        task_execution.status = TaskStatus.RUNNING
+        task_execution.status = (
+            TaskStatus.RUNNING
+        )
 
         task_execution.started_at = (
             datetime.now(timezone.utc)
@@ -172,7 +228,7 @@ def execute_task(
         )
 
         # -------------------------------------------------
-        # Simulated task execution
+        # SIMULATED TASK EXECUTION
         # -------------------------------------------------
 
         execution_time = 3
@@ -180,10 +236,13 @@ def execute_task(
         print(
             f"Executing task "
             f"{task_execution.task_id} "
-            f"for {execution_time} seconds..."
+            f"for "
+            f"{execution_time} seconds..."
         )
 
-        time.sleep(execution_time)
+        time.sleep(
+            execution_time
+        )
 
         # -------------------------------------------------
         # TIMEOUT CHECK
@@ -191,7 +250,8 @@ def execute_task(
 
         if (
             task.timeout_seconds is not None
-            and execution_time > task.timeout_seconds
+            and execution_time
+            > task.timeout_seconds
         ):
 
             raise TimeoutError(
@@ -200,10 +260,12 @@ def execute_task(
             )
 
         # -------------------------------------------------
-        # SUCCESS
+        # MARK TASK AS SUCCESS
         # -------------------------------------------------
 
-        task_execution.status = TaskStatus.SUCCESS
+        task_execution.status = (
+            TaskStatus.SUCCESS
+        )
 
         task_execution.completed_at = (
             datetime.now(timezone.utc)
@@ -217,10 +279,6 @@ def execute_task(
             f"completed successfully."
         )
 
-    # =====================================================
-    # FAILURE / TIMEOUT
-    # =====================================================
-
     except Exception as e:
 
         db.rollback()
@@ -228,16 +286,21 @@ def execute_task(
         task_execution = (
             db.query(TaskExecution)
             .filter(
-                TaskExecution.id == task_execution_id
+                TaskExecution.id
+                == task_execution_id
             )
             .first()
         )
 
         if task_execution:
 
-            task_execution.status = TaskStatus.FAILED
+            task_execution.status = (
+                TaskStatus.FAILED
+            )
 
-            task_execution.error_message = str(e)
+            task_execution.error_message = (
+                str(e)
+            )
 
             task_execution.completed_at = (
                 datetime.now(timezone.utc)
@@ -251,10 +314,7 @@ def execute_task(
                 f"failed: {e}"
             )
 
-            # -------------------------------------------------
-            # Retry existing failed task
-            # -------------------------------------------------
-
+            # Retry or move to Dead-Letter Queue.
             retry_task(
                 db,
                 task_execution
@@ -265,24 +325,13 @@ def execute_task(
         db.close()
 
 
-# =========================================================
-# START WORKER
-# =========================================================
-
 def start_worker():
     """
-    Start worker process.
+    Register the worker, start heartbeat,
+    and continuously consume Redis messages.
     """
 
-    # -----------------------------------------------------
-    # Register worker
-    # -----------------------------------------------------
-
     worker_id = register_worker()
-
-    # -----------------------------------------------------
-    # Start heartbeat thread
-    # -----------------------------------------------------
 
     heartbeat_thread = threading.Thread(
         target=heartbeat_loop,
@@ -292,12 +341,13 @@ def start_worker():
 
     heartbeat_thread.start()
 
-    print("Worker started.")
-    print("Waiting for tasks from Redis...")
+    print(
+        "Worker started."
+    )
 
-    # -----------------------------------------------------
-    # Listen for tasks
-    # -----------------------------------------------------
+    print(
+        "Waiting for tasks from Redis..."
+    )
 
     while True:
 
@@ -306,6 +356,7 @@ def start_worker():
             task_data = dequeue_task()
 
             if task_data is None:
+
                 continue
 
             print(
@@ -321,7 +372,8 @@ def start_worker():
         except KeyboardInterrupt:
 
             print(
-                f"\nWorker {worker_id} stopped."
+                f"\nWorker "
+                f"{worker_id} stopped."
             )
 
             break
@@ -335,9 +387,6 @@ def start_worker():
             time.sleep(1)
 
 
-# =========================================================
-# ENTRY POINT
-# =========================================================
-
 if __name__ == "__main__":
+
     start_worker()
