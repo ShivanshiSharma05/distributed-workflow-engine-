@@ -17,6 +17,10 @@ from app.services.retry_service import (
     retry_task
 )
 
+from app.services.execution_service import (
+    update_workflow_status
+)
+
 from app.services.worker_service import (
     update_heartbeat
 )
@@ -118,8 +122,12 @@ def execute_task(
     """
     Execute one task message.
 
-    Includes basic idempotency protection
-    for already-completed task executions.
+    Includes:
+    - Idempotency protection
+    - Task timeout handling
+    - Retry handling
+    - Dead-letter queue integration
+    - Workflow status updates
     """
 
     db: Session = SessionLocal()
@@ -172,6 +180,7 @@ def execute_task(
         # Only QUEUED tasks should be executed.
         # This prevents accidental execution of
         # PENDING, READY, RUNNING, or RETRYING tasks.
+
         if task_execution.status != (
             TaskStatus.QUEUED
         ):
@@ -279,6 +288,15 @@ def execute_task(
             f"completed successfully."
         )
 
+        # -------------------------------------------------
+        # UPDATE WORKFLOW STATUS AFTER SUCCESS
+        # -------------------------------------------------
+
+        update_workflow_status(
+            db,
+            task_execution.workflow_execution_id
+        )
+
     except Exception as e:
 
         db.rollback()
@@ -314,10 +332,22 @@ def execute_task(
                 f"failed: {e}"
             )
 
-            # Retry or move to Dead-Letter Queue.
+            # -------------------------------------------------
+            # RETRY OR MOVE TO DEAD-LETTER QUEUE
+            # -------------------------------------------------
+
             retry_task(
                 db,
                 task_execution
+            )
+
+            # -------------------------------------------------
+            # UPDATE WORKFLOW STATUS AFTER RETRY PROCESSING
+            # -------------------------------------------------
+
+            update_workflow_status(
+                db,
+                task_execution.workflow_execution_id
             )
 
     finally:
