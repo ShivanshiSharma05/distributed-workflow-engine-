@@ -1,238 +1,148 @@
 
 # Distributed Workflow Engine
 
-A distributed workflow orchestration engine built with **FastAPI, PostgreSQL, Redis, and Python**. The system manages workflow execution, dependency-aware task scheduling, distributed worker processing, retries, timeout handling, and failure recovery.
+A backend workflow orchestration system for defining, scheduling, dispatching, and monitoring dependent tasks with retry handling, execution timeouts, worker monitoring, and dead-letter queue processing.
+
+Built to explore the core engineering concepts behind distributed task execution platforms such as workflow engines, job schedulers, and background processing systems.
 
 ## Overview
 
-Modern applications often execute workflows composed of multiple dependent tasks. These tasks may need to run sequentially or in parallel, be retried after failures, and be monitored throughout their lifecycle.
+The Distributed Workflow Engine allows users to define workflows composed of multiple tasks and execute them according to their dependencies.
 
-The **Distributed Workflow Engine** is a simplified workflow orchestration system inspired by concepts used in platforms such as Temporal, Airflow, and Celery.
+The system separates workflow management, task scheduling, message dispatching, and task execution into distinct components.
 
-The project focuses on implementing core distributed task-processing concepts, including:
+It supports execution tracking and failure-handling mechanisms designed to improve reliability during task processing.
+
+### Core capabilities
 
 - Workflow and task management
-- Dependency-aware scheduling
-- Redis-based task queuing
-- Worker-based execution
-- Retry and failure handling
-- Worker monitoring
-- Workflow-level execution tracking
-
-> **Project scope:** This is an educational and portfolio implementation designed to explore workflow orchestration and distributed backend concepts. It is not intended to be a production replacement for established orchestration platforms.
-
----
-
-## Key Features
-
-### Workflow Management
-
-- Create and manage workflows.
-- Associate tasks with workflows.
-- Create workflow executions.
-- Track workflow-level execution status.
-
-### Task Management
-
-- Create tasks within a workflow.
-- Configure task priority.
-- Configure retry limits.
-- Configure task timeout values.
-- Track task execution states.
-
-### Dependency-Aware Scheduling
-
-- Define dependencies between tasks.
-- Identify tasks whose dependencies are satisfied.
-- Support workflow execution based on task relationships.
-- Enable dependent tasks to proceed after prerequisite tasks complete.
-
-### Distributed Task Processing
-
-- Use Redis as a task queue.
-- Dispatch tasks for worker processing.
-- Execute tasks through worker services.
-- Track task execution and worker assignments.
-
-### Reliability and Failure Handling
-
-- Retry failed tasks.
-- Apply exponential backoff during retries.
-- Handle task timeouts.
-- Support idempotency protection in supported execution flows.
-- Move tasks that exhaust retry attempts to a Dead-Letter Queue.
-- Track workflow failure when tasks fail or reach the Dead-Letter Queue.
-
-### Worker Monitoring
-
-- Register workers.
-- Track worker status.
-- Support worker heartbeat handling.
-- Detect worker failures through monitoring logic.
-
-### Execution Monitoring
-
-- Retrieve workflow execution details.
-- Track task execution statuses.
-- Aggregate task statuses into workflow status.
-- View execution summaries and task status counts.
+- Dependency-based task scheduling
+- Task priority handling
+- Redis-backed task dispatching
+- Worker registration and heartbeat monitoring
+- Retry handling with exponential backoff
+- Task timeout detection
+- Dead-letter queue processing
+- Basic idempotency protection
+- Workflow-level execution status tracking
+- Execution summaries and task status aggregation
 
 ---
 
 ## Architecture
 
 ```text
-                         Client
-                           |
-                           v
-                    FastAPI REST API
-                           |
-                           v
-                  Workflow Orchestrator
-                           |
-                           v
-                       Scheduler
-                           |
-                           v
-                     Redis Queue
-                           |
-             +-------------+-------------+
-             |                           |
-             v                           v
-          Worker 1                    Worker 2
-             |                           |
-             +-------------+-------------+
-                           |
-                           v
-                   Task Execution
-                           |
-                           v
-                     PostgreSQL
-                           |
-                           v
-               Workflow Status Tracking
+                    ┌────────────────────┐
+                    │       Client       │
+                    │  Swagger / HTTP    │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │    Workflow API    │
+                    │      FastAPI       │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │   Orchestrator     │
+                    │ Workflow Execution │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │     Scheduler      │
+                    │ Dependencies/Prior │
+                    │      itization     │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │    Redis Queue     │
+                    │   Task Dispatch    │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │      Workers       │
+                    │   Task Execution   │
+                    └─────────┬──────────┘
+                              │
+                              ▼
+                    ┌────────────────────┐
+                    │ PostgreSQL Storage │
+                    │ Execution Metadata │
+                    └────────────────────┘
 ```
 
-### Main Components
+The architecture separates API requests from task scheduling and worker execution.
 
-| Component | Responsibility |
-|---|---|
-| FastAPI | Provides REST APIs and interactive Swagger documentation |
-| Workflow Service | Handles workflow-related business logic |
-| Task Service | Manages tasks and task configuration |
-| Scheduler | Identifies and schedules executable tasks |
-| Redis | Provides queue-based task communication |
-| Workers | Retrieve and execute assigned tasks |
-| PostgreSQL | Stores workflows, tasks, executions, and related state |
-| Retry Service | Handles retry logic and backoff behavior |
-| Worker Monitor | Tracks worker status and heartbeat information |
-| Execution Service | Manages execution details and workflow status aggregation |
+Redis is used for task dispatching, while PostgreSQL stores workflow, task, dependency, worker, and execution-related data.
 
 ---
 
 ## Workflow Execution Lifecycle
 
-```text
-Create Workflow
-      |
-      v
-Create Tasks
-      |
-      v
-Define Dependencies
-      |
-      v
-Create Workflow Execution
-      |
-      v
-Identify Ready Tasks
-      |
-      v
-Schedule Tasks
-      |
-      v
-Push Tasks to Redis
-      |
-      v
-Worker Retrieves Task
-      |
-      v
-Execute Task
-      |
-      +--------------------+
-      |                    |
-      v                    v
-   Success              Failure
-      |                    |
-      |                    v
-      |                Retry?
-      |                    |
-      |             +------+------+
-      |             |             |
-      |             v             v
-      |          Retry       Retry Limit
-      |             |             |
-      |             |             v
-      |             |        Dead-Letter
-      |             |           Queue
-      |             |             |
-      +-------------+-------------+
-                    |
-                    v
-          Update Task Status
-                    |
-                    v
-        Aggregate Workflow Status
-```
+A typical workflow execution follows these stages:
 
-### Task Status Lifecycle
+1. A workflow is created with its associated tasks.
+2. Dependencies are defined between tasks.
+3. A workflow execution is created.
+4. The scheduler identifies tasks that are ready to run.
+5. Ready tasks are dispatched through Redis.
+6. Workers retrieve and execute assigned tasks.
+7. Task execution states are updated in the database.
+8. Failed tasks may be retried using exponential backoff.
+9. Tasks that exhaust their retries can be moved to the dead-letter queue.
+10. The workflow status is updated based on task execution results.
 
-Tasks can move through states such as:
+---
 
-```text
-PENDING
-   |
-   v
-READY
-   |
-   v
-QUEUED
-   |
-   v
-RUNNING
-   |
-   +--------------------+
-   |                    |
-   v                    v
-SUCCESS              RETRYING
-                         |
-                         v
-                      RUNNING
+## Reliability Features
 
-Failure after retry limit
-          |
-          v
-     DEAD_LETTER
-```
+### Retry Handling
 
-The exact transition depends on the scheduler, worker execution, retry, and failure-handling logic.
+Failed tasks can be retried according to their configured retry limit.
+
+The retry mechanism uses exponential backoff to delay subsequent attempts.
+
+This helps avoid repeatedly retrying failed tasks without a delay.
+
+### Timeout Handling
+
+Tasks support configurable execution timeouts.
+
+Tasks that exceed their allowed execution time are marked as failed and can enter the retry flow according to the configured retry policy.
+
+### Dead-Letter Queue
+
+Tasks that continue failing after exhausting their retry attempts can be moved to a dead-letter queue.
+
+This separates repeatedly failing tasks from the normal execution path for further inspection or recovery.
+
+### Worker Monitoring
+
+Workers register with the system and provide heartbeat information.
+
+The monitoring mechanism can identify workers that become inactive or unhealthy.
+
+### Idempotency
+
+The system includes basic idempotency protection to reduce duplicate workflow execution under supported conditions.
 
 ---
 
 ## Technology Stack
 
 | Technology | Purpose |
-|---|---|
-| Python | Core application development |
+|------------|---------|
+| Python | Application and execution logic |
 | FastAPI | REST API development |
-| Uvicorn | ASGI application server |
-| PostgreSQL | Persistent data storage |
+| PostgreSQL | Persistent application and execution data |
 | SQLAlchemy | Database ORM |
-| Redis | Task queue and worker communication |
-| Pydantic | Request and response validation |
-| Pydantic Settings | Application configuration |
-| Docker | Infrastructure and Redis container execution |
-| Pytest | Automated testing where configured |
+| Redis | Task queue and dispatching |
+| Docker | Infrastructure service management |
+| Pydantic | Request validation and configuration |
 
 ---
 
@@ -260,278 +170,186 @@ distributed-workflow-engine/
 │   │
 │   ├── models/
 │   ├── schemas/
+│   │
 │   ├── scheduler/
+│   │   └── scheduler.py
+│   │
 │   ├── services/
+│   │   ├── workflow_service.py
+│   │   ├── task_service.py
+│   │   ├── dependency_service.py
+│   │   ├── execution_service.py
+│   │   ├── queue_service.py
+│   │   ├── dispatch_service.py
+│   │   ├── retry_service.py
+│   │   ├── worker_service.py
+│   │   └── worker_monitor.py
+│   │
 │   ├── workers/
+│   │   └── worker.py
+│   │
 │   └── main.py
 │
 ├── tests/
 ├── .env.example
 ├── .gitignore
-├── README.md
 ├── requirements.txt
-└── venv/
+└── README.md
 ```
-
-> The structure above represents the major application components. Keep the structure synchronized with the actual repository.
 
 ---
 
-## Getting Started
+## API Modules
+
+The application exposes API endpoints for:
+
+- Workflow creation and management
+- Task creation and management
+- Task dependency configuration
+- Workflow execution creation
+- Execution detail and summary retrieval
+- Scheduler operations
+- Worker registration and monitoring
+- Dead-letter queue inspection
+
+Interactive API documentation is available through FastAPI Swagger UI.
+
+---
+
+## Local Setup
 
 ### Prerequisites
 
-Install the following before running the application:
+Install the following:
 
-- Python 3.10 or a compatible supported Python version
+- Python 3.10 or later
 - PostgreSQL
-- Docker Desktop
 - Redis
+- Docker Desktop (for running infrastructure services)
 - Git
 
-Check your installed versions:
-
-```bash
-python --version
-docker --version
-git --version
-```
-
----
-
-## Installation
-
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone <YOUR_GITHUB_REPOSITORY_URL>
 cd distributed-workflow-engine
 ```
 
-### 2. Create a Virtual Environment
+### 2. Create a virtual environment
 
-```bash
-python -m venv venv
-```
-
-### 3. Activate the Virtual Environment
-
-For Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
+python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-### 4. Install Dependencies
+### 3. Install dependencies
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-### 5. Configure Environment Variables
+### 4. Configure environment variables
 
-Create a local `.env` file using `.env.example` as a reference.
+Create a `.env` file using `.env.example` as a reference.
 
-Configure the database and Redis settings required by the application.
+Configure the required PostgreSQL and Redis connection settings.
 
-Do not commit actual credentials or secrets to the repository.
+Do not commit credentials or private environment variables to the repository.
 
----
+### 5. Start PostgreSQL and Redis
 
-## Running the Application
+Ensure that PostgreSQL and Redis are running and accessible using the connection settings in `.env`.
 
-### 1. Start Redis
+If Redis is running in Docker, verify the container is active before starting the application.
 
-Start the Redis container configured for your local environment.
-
-For the existing Redis container:
-
-```powershell
-docker start workflow-redis
-```
-
-Verify the Redis connection:
-
-```powershell
-docker exec workflow-redis redis-cli ping
-```
-
-Expected output:
-
-```text
-PONG
-```
-
-### 2. Start the FastAPI Server
+### 6. Start the API
 
 ```powershell
 uvicorn app.main:app --reload
 ```
 
-### 3. Open API Documentation
+The API will be available at:
 
-Open the following URL in your browser:
+```text
+http://127.0.0.1:8000
+```
+
+Swagger documentation:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-FastAPI Swagger UI provides interactive documentation for exploring and testing the available API endpoints.
+---
+
+## Validation
+
+The project was validated through API testing using FastAPI Swagger UI.
+
+Validation scenarios include:
+
+- Creating workflows and tasks
+- Defining task dependencies
+- Creating workflow executions
+- Checking task readiness
+- Dispatching tasks through Redis
+- Processing task execution
+- Testing retry behavior
+- Testing timeout handling
+- Testing dead-letter queue behavior
+- Checking worker monitoring endpoints
+- Reviewing workflow execution summaries
+
+The current implementation is an MVP designed to demonstrate workflow orchestration and distributed execution concepts.
 
 ---
 
-## API Areas
+## Engineering Considerations
 
-The application contains API routes for the following areas:
+The project explores several practical challenges involved in distributed task execution:
 
-| API Area | Purpose |
-|---|---|
-| Workflows | Create and manage workflows |
-| Tasks | Create and manage workflow tasks |
-| Dependencies | Define relationships between tasks |
-| Executions | Create and inspect workflow executions |
-| Scheduler | Manage scheduling-related operations |
-| Task Executions | Track individual task execution states |
-| Workers | Worker registration and monitoring |
-| Dead-Letter Queue | Inspect tasks that exhausted retry attempts |
+- Separating task scheduling from task execution
+- Managing task dependencies
+- Handling transient task failures
+- Tracking task and workflow state
+- Monitoring worker availability
+- Preventing uncontrolled retry loops
+- Isolating repeatedly failing tasks
+- Maintaining execution metadata in persistent storage
 
-The exact endpoints, request bodies, and response schemas are available through Swagger UI.
+The implementation prioritizes clear architecture and core functionality over production-scale deployment.
 
 ---
 
-## Reliability Design
+## Current Limitations
 
-### Retry Handling
+This project is a simplified workflow orchestration engine and is not intended to replace production platforms such as Temporal, Airflow, or Celery.
 
-Failed tasks can be retried according to their configured retry limit.
+Potential areas for future improvement include:
 
-The retry service supports exponential backoff to avoid repeatedly retrying failed tasks without delay.
-
-### Timeout Handling
-
-Tasks can be configured with a timeout value. When a task exceeds its configured execution limit, the worker execution logic handles the timeout according to the retry and failure-management flow.
-
-### Dead-Letter Queue
-
-When a task exhausts its permitted retry attempts, it can be moved to the Dead-Letter Queue.
-
-This allows failed task executions to be inspected separately from normally completed tasks.
-
-### Worker Monitoring
-
-Worker monitoring functionality supports registration, heartbeat handling, and worker status tracking.
-
-The system also includes failure-detection logic for workers that become unavailable.
-
-### Idempotency
-
-The project includes idempotency protection in supported execution flows to reduce duplicate processing.
-
-The implementation should not be interpreted as a universal guarantee of exactly-once execution.
-
----
-
-## Execution Status Tracking
-
-### Workflow Statuses
-
-The workflow execution model supports statuses such as:
-
-- `PENDING`
-- `RUNNING`
-- `SUCCESS`
-- `FAILED`
-
-### Task Statuses
-
-Task execution supports statuses such as:
-
-- `PENDING`
-- `READY`
-- `QUEUED`
-- `RUNNING`
-- `SUCCESS`
-- `FAILED`
-- `RETRYING`
-- `DEAD_LETTER`
-
-The workflow status is aggregated from the statuses of its associated task executions.
-
----
-
-## Testing and Validation
-
-The workflow execution lifecycle and API functionality have been manually validated through FastAPI Swagger UI.
-
-Validation areas include:
-
-- Workflow creation
-- Task creation
-- Dependency configuration
-- Workflow execution
-- Task scheduling
-- Redis queue processing
-- Worker execution
-- Retry behavior
-- Timeout handling
-- Dead-Letter Queue processing
-- Worker monitoring
-- Workflow status aggregation
-- Execution summary APIs
-
-Automated test coverage should be evaluated separately based on the test files available in the repository.
-
----
-
-## Design Considerations
-
-The project was developed to explore the following backend and distributed-systems concepts:
-
-- Task scheduling
-- Dependency management
-- Queue-based communication
-- Worker-based processing
-- Retry and failure recovery
-- Execution state management
-- Workflow-level aggregation
-- Service separation
-- Persistent execution tracking
-
-The implementation prioritizes learning and demonstrating these concepts through a working backend system.
-
----
-
-## Limitations
-
-This is a portfolio-level workflow orchestration implementation.
-
-It does not claim to provide every production capability of systems such as Temporal, Airflow, or Celery.
-
-Potential production-level improvements include:
-
-- More comprehensive automated integration testing
-- Advanced metrics and observability
-- Stronger task cancellation guarantees
-- Improved scheduler durability
+- Distributed scheduler coordination
+- Stronger task leasing and duplicate-execution prevention
+- Persistent queue recovery
+- More comprehensive automated testing
+- Metrics and observability
+- Authentication and authorization
 - Horizontal worker scaling
-- More advanced failure recovery
-- Deployment automation
-- Security hardening
-- Distributed coordination mechanisms
+- Containerized end-to-end deployment
+- Advanced workflow recovery and compensation strategies
 
 ---
 
 ## Future Improvements
 
-- Docker Compose-based complete application deployment
-- Monitoring dashboard
-- Metrics and observability integration
-- Workflow pause and resume
-- Task cancellation
-- Improved integration testing
-- Horizontal worker scaling
-- Scheduler persistence improvements
-- Execution history and audit enhancements
+- Add a complete automated integration test suite.
+- Introduce metrics and execution dashboards.
+- Improve distributed worker coordination.
+- Add stronger task locking and lease expiration.
+- Support workflow cancellation and recovery.
+- Add configurable concurrency limits.
+- Improve queue durability and recovery mechanisms.
 
 ---
 
@@ -539,29 +357,26 @@ Potential production-level improvements include:
 
 Through this project, I explored:
 
-- Backend API development using FastAPI
-- Relational database design using PostgreSQL
-- ORM-based persistence with SQLAlchemy
-- Redis-based task queue architecture
-- Dependency-aware scheduling
-- Distributed worker execution
-- Retry and timeout handling
-- Failure recovery patterns
-- Workflow status aggregation
-- Service-oriented backend organization
+- Backend API architecture
+- Workflow and task orchestration
+- Dependency-based scheduling
+- Redis-based task dispatch
+- Worker execution models
+- Retry and timeout strategies
+- Dead-letter queue design
+- Database-backed execution tracking
+- Reliability considerations in distributed systems
 
 ---
 
 ## Project Status
 
-**Status: Core MVP Completed**
+**Status:** Functional MVP
 
-The core workflow orchestration, task execution, queue processing, retry, timeout, worker monitoring, and failure-handling functionality has been implemented and manually validated through Swagger UI.
-
-The project can be extended further with production-oriented observability, deployment, and testing improvements.
+The project implements the core workflow orchestration, task execution, retry, monitoring, and failure-handling features described above.
 
 ---
 
 ## License
 
-Add an appropriate license if you decide to open-source the project.
+This project is available for educational and portfolio purposes.
